@@ -83,7 +83,7 @@ class TEST //一次测试，完成程序的运行、输入、输出、比较
             {
                 throw std::runtime_error(strerror(errno));
             }
-            
+
             dup2(STDIN_FILENO, input_fd);
             dup2(STDOUT_FILENO, out_fd);
             dup2(STDERR_FILENO, err_fd);
@@ -93,18 +93,37 @@ class TEST //一次测试，完成程序的运行、输入、输出、比较
         sleep(1);
         int exitstatus = 0;
         waitpid(pid, &exitstatus, WNOHANG);
-        return WIFEXITED(exitstatus);
+        return WIFEXITED(exitstatus); //正常终止则为真
     }
 
 public:
-    static bool compare(const char *file1, const char *file2)
+    bool compare()
     {
-        char *file1Hash = getSHA256(file1);
-        char *file2Hash = getSHA256(file2);
-        bool result = (strcmp(file1Hash, file2Hash) == 0);
-        delete[] file1;
-        delete[] file2;
+        char *fileHash[2];
+        fileHash[currect] = getSHA256(OutPath[currect]);
+        fileHash[target] = getSHA256(OutPath[target]);
+        bool result = (strcmp(fileHash[currect], fileHash[target]) == 0);
+        delete[] fileHash[currect];
+        delete[] fileHash[target];
         return result;
+    }
+    status test()
+    {
+        if (run(currect) != 0)
+        {
+            fprintf(stderr, "Error.\n对照程序 CE\n");
+            return CE;
+        }
+        if (run(target) != 0)
+        {
+            fprintf(stderr, "CE\n");
+            return CE;
+        }
+        if (compare())
+        {
+            fprintf(stderr, "WA\n");
+            return WA;
+        }
     }
 };
 
@@ -170,4 +189,8 @@ int compile(char *filepath, const std::vector<std::string> &compileArgs)
     execvp(argv[0], argv);
     throw std::runtime_error("exec Failed");
     return 1;
+}
+
+void RAND()
+{
 }
