@@ -14,9 +14,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
-
+constexpr int TimeLimit = 1;
 constexpr int LEN = 9;
-// extern int optind, opterr, optopt;
 /**
  * 参数 -t  target  目标代码路径
  * 参数 -c correct 正确代码路径
@@ -90,10 +89,10 @@ class TEST //一次测试，完成程序的运行、输入、输出、比较
             execl(programPath[t], nullptr);
         }
         // 父进程
-        sleep(1);
-        int exitstatus = 0;
-        waitpid(pid, &exitstatus, WNOHANG);
-        return WIFEXITED(exitstatus); //正常终止则为真
+        sleep(TimeLimit);
+        int exitStatus;
+        waitpid(pid, &exitStatus, WNOHANG);
+        return WIFEXITED(exitStatus); //正常终止则为真
     }
 
 public:
@@ -190,7 +189,49 @@ int compile(char *filepath, const std::vector<std::string> &compileArgs)
     throw std::runtime_error("exec Failed");
     return 1;
 }
-
+class self_check
+{
+    std::string clang_version, gcc_version, clangtidy_version, cppcheck_version;
+    void check_clang()
+    {
+        FILE *fp = popen("clang -v", "r");
+        std::string regex = R"(clang.{0,4}(version|版本).{0,4}([\d\.]{3,10}))";
+        re2::RE2 pattern(regex);
+        int n = 10;
+        while (n-- && feof(fp) == 0)
+        {
+            char line[2048];
+            fgets(line, sizeof(line), fp);
+            re2::RE2::Extract(line, pattern, R"(\2)", &clang_version);
+        }
+    }
+    void check_gcc()
+    {
+        FILE *fp = popen("gcc -v", "r");
+        std::string regex = R"(gcc.{0,4}(version|版本).{0,4}([\d\.]{3,10}))";
+        re2::RE2 pattern(regex);
+        int n = 10;
+        while (n-- && feof(fp) == 0)
+        {
+            char line[2048];
+            fgets(line, sizeof(line), fp);
+            re2::RE2::Extract(line, pattern, R"(\2)", &clang_version);
+        }
+    }
+    void check_clangtidy()
+    {
+        FILE *fp = popen("clang-tidy --version", "r");
+        std::string regex = R"(LLVM.{0,4}(version|版本).{0,4}([\d\.]{3,10}))";
+        re2::RE2 pattern(regex);
+        int n = 10;
+        while (n-- && feof(fp) == 0)
+        {
+            char line[2048];
+            fgets(line, sizeof(line), fp);
+            re2::RE2::Extract(line, pattern, R"(\2)", &clang_version);
+        }
+    }
+};
 void RAND()
 {
 }
