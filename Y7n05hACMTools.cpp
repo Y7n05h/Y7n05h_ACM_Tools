@@ -6,7 +6,6 @@
 #include <fcntl.h>
 #include <iostream>
 #include <memory>
-#include <openssl/sha.h>
 #include <re2/re2.h>
 #include <stdexcept>
 #include <sys/stat.h>
@@ -192,44 +191,36 @@ int compile(char *filepath, const std::vector<std::string> &compileArgs)
 class self_check
 {
     std::string clang_version, gcc_version, clangtidy_version, cppcheck_version;
-    void check_clang()
+
+    enum software
     {
-        FILE *fp = popen("clang -v", "r");
-        std::string regex = R"(clang.{0,4}(version|版本).{0,4}([\d\.]{3,10}))";
+        gcc,
+        clang,
+        clangtidy
+    };
+
+    void check(const std::string &name)
+    {
+        std::string regex = R"(.{0,4}(version|版本).{0,4}([\d\.]{3,10}))";
+        std::string cmd = "--version";
+        cmd = name + cmd;
+        FILE *fp = popen(cmd.c_str(), "r");
+        regex = name + regex;
         re2::RE2 pattern(regex);
         int n = 10;
         while (n-- && feof(fp) == 0)
         {
             char line[2048];
             fgets(line, sizeof(line), fp);
-            re2::RE2::Extract(line, pattern, R"(\2)", &clang_version);
+
+            if (re2::RE2::Extract(line, pattern, R"(\2)", &clang_version))
+            {
+                pclose(fp);
+                return;
+            }
         }
-    }
-    void check_gcc()
-    {
-        FILE *fp = popen("gcc -v", "r");
-        std::string regex = R"(gcc.{0,4}(version|版本).{0,4}([\d\.]{3,10}))";
-        re2::RE2 pattern(regex);
-        int n = 10;
-        while (n-- && feof(fp) == 0)
-        {
-            char line[2048];
-            fgets(line, sizeof(line), fp);
-            re2::RE2::Extract(line, pattern, R"(\2)", &clang_version);
-        }
-    }
-    void check_clangtidy()
-    {
-        FILE *fp = popen("clang-tidy --version", "r");
-        std::string regex = R"(LLVM.{0,4}(version|版本).{0,4}([\d\.]{3,10}))";
-        re2::RE2 pattern(regex);
-        int n = 10;
-        while (n-- && feof(fp) == 0)
-        {
-            char line[2048];
-            fgets(line, sizeof(line), fp);
-            re2::RE2::Extract(line, pattern, R"(\2)", &clang_version);
-        }
+        pclose(fp);
+        throw std::runtime_error("read " + name + " failed");
     }
 };
 void RAND()
