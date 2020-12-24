@@ -1,3 +1,4 @@
+#include <array>
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
@@ -6,12 +7,14 @@
 #include <fcntl.h>
 #include <iostream>
 #include <memory>
+#include <openssl/sha.h>
 #include <re2/re2.h>
 #include <stdexcept>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 constexpr int TimeLimit = 1;
 constexpr int LEN = 9;
@@ -22,10 +25,12 @@ constexpr int LEN = 9;
  * 参数 -e end 结束测试，清空测试时生成的文件
  * 参数 -T times 测试次数缺省值为10
   */
-enum types
+
+enum FILETYPE
 {
-    target,
-    currect
+    IN,
+    OUT,
+    ERR
 };
 enum status
 {
@@ -35,13 +40,198 @@ enum status
     RE,
     TLE
 };
-char *SourcePath[2];
-bool Options_t, Options_c, Options_p, Options_e;
-bool compare(const char *file1, const char *file2);
-int compile(char *filepath, const std::vector<std::string> &compileArgs);
-char *getSHA256(const char *filename);
 
-class TEST //一次测试，完成程序的运行、输入、输出、比较
+bool Options_t, Options_c, Options_p, Options_e;
+
+class file
+{
+
+    std::string path;
+    int fd{};
+
+    std::array<unsigned char, SHA256_DIGEST_LENGTH> getSHA256() const
+    {
+        std::array<unsigned char, SHA256_DIGEST_LENGTH> hash{};
+        FILE *fp = fopen(path.c_str(), "rb");
+        SHA256_CTX tmp;
+
+        if (fp == nullptr)
+        {
+            throw std::runtime_error(strerror(errno));
+        }
+        SHA256_Init(&tmp);
+
+        size_t size = 0;
+        unsigned char buf[4096];
+
+        while ((size = fread(buf, 1, 4096, fp)) != 0)
+        {
+            SHA256_Update(&tmp, buf, size);
+        }
+        SHA256_Final(hash.data(), &tmp);
+        fclose(fp);
+        return hash;
+    }
+
+public:
+    void redirect(int from) const
+    {
+        if (dup2(from, fd) == -1)
+        {
+            throw std::runtime_error(strerror(errno));
+        }
+    }
+    bool operator==(const file &other) const
+    {
+        return getSHA256() == other.getSHA256();
+    }
+    bool operator!=(const file &other) const
+    {
+        return !operator==(other);
+    }
+    file(std::string prefix, FILETYPE filetype) : path(std::move(std::move(prefix)))
+    {
+        switch (filetype)
+        {
+        case IN:
+            path += "_in.txt";
+            break;
+        case OUT:
+            path += "_out.txt";
+            break;
+        case ERR:
+            path += "_err.txt";
+            break;
+        }
+        if (filetype == IN)
+        {
+            fd = open(path.c_str(), O_RDONLY);
+        }
+        else
+        {
+            fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        }
+        if (fd == -1)
+        {
+            throw std::runtime_error("open file failed");
+        }
+    }
+    explicit file(std::string filepath) : path(std::move(std::move(filepath)))
+    {
+        fd = open(path.c_str(), O_RDONLY);
+    }
+    explicit file(char *filepath) : path(filepath)
+    {
+        fd = open(path.c_str(), O_RDONLY);
+    }
+};
+class SourceCode
+{
+    std::string sourceCodePath;
+    bool cFile = false;
+    std::string programPath;
+    void JudgmentType()
+    {
+        RE2 re("\\.c$");
+        assert(re.ok());
+        cFile = RE2::PartialMatch(sourceCodePath, re);
+    }
+
+public:
+    void compile(const std::vector<std::string> &compileParameter, const std::string &path)
+    {
+        const char *argv[compileParameter.size() + 4];
+        if (cFile)
+        {
+            if (compileParameter[0] == "g++")
+            {
+                argv[0] = "gcc";
+            }
+            else if (compileParameter[0] == "clang++")
+            {
+                argv[0] = "clang";
+            }
+        }
+        else
+        {
+            if (compileParameter[0] == "gcc")
+            {
+                argv[0] = "g++";
+            }
+            else if (compileParameter[0] == "clang")
+            {
+                argv[0] = "clang++";
+            }
+        }
+        size_t i;
+        for (i = 1; i < compileParameter.size(); i++)
+        {
+            argv[i] = compileParameter[i].c_str();
+        }
+        argv[i++] = sourceCodePath.c_str();
+        argv[i++] = "-o";
+        argv[i++] = path.c_str();
+        argv[i] = nullptr;
+        pid_t pid = fork();
+        if (pid < 0)
+        {
+            throw std::runtime_error("fork failed");
+        }
+        if (pid == 0)
+        {
+            execvp(argv[0], (char *const *)argv);
+        }
+        else
+        {
+            int wstatus = 0;
+            int ret = waitpid(pid, &wstatus, 0);
+            if (ret == -1)
+            {
+                throw std::runtime_error("waitpid failed");
+            }
+            if (!WIFEXITED(wstatus))
+            {
+                throw std::runtime_error("CE");
+            }
+        }
+    }
+    explicit SourceCode(char *path) : sourceCodePath(path) {}
+    explicit SourceCode(std::string path) : sourceCodePath(std::move(std::move(path))) {}
+};
+
+int main(int argc, char *argv[])
+{
+    std::string targetSourceCodePath;
+    std::string currectSourceCodePath;
+    int opt = 0;
+    while ((opt = getopt(argc, argv, "t:c:T:")) != -1)
+    {
+        switch (opt)
+        {
+        case 't':
+            targetSourceCodePath = optarg;
+            Options_t = true;
+            break;
+        case 'c':
+            currectSourceCodePath = optarg;
+            Options_c = true;
+            break;
+        default:
+            printf("Unknow option:%c", opterr);
+            exit(EXIT_FAILURE);
+        }
+    }
+    SourceCode currect(currectSourceCodePath), target(targetSourceCodePath);
+}
+
+/*
+Y7n05h 在此处使用了很多C语言的方式完成IO操作
+是因为愚蠢的Y7n05h还没学明白C++里面的各种IO方式
+Y7n05h承诺未来会改善他们
+当然，有兴趣帮助Y7n05h改进程序的欢迎PR
+*/
+
+/* class TEST //一次测试，完成程序的运行、输入、输出、比较
 {
 
     int input_fd;
@@ -50,25 +240,6 @@ class TEST //一次测试，完成程序的运行、输入、输出、比较
     char *OutPath[2];     // 标准输出路径
     char *ErrPath[2];     // 错误输出路径
 
-    static char *getSHA256(const char *filename)
-    {
-        char cmd[strlen(filename) + strlen("sha256sum ") + 1];
-        strcpy(cmd, "sha256sum ");
-        strcat(cmd, filename);
-        FILE *fp = popen(cmd, "r");
-        char *hash = nullptr;
-        try
-        {
-            hash = new char[65];
-        }
-        catch (std::bad_alloc &err)
-        {
-            std::cout << err.what() << std::endl;
-        }
-        fscanf(fp, "%64s", hash);
-        pclose(fp);
-        return hash;
-    }
     int run(types t) //返回值为运行状态
     {
         pid_t pid = fork();
@@ -95,16 +266,6 @@ class TEST //一次测试，完成程序的运行、输入、输出、比较
     }
 
 public:
-    bool compare()
-    {
-        char *fileHash[2];
-        fileHash[currect] = getSHA256(OutPath[currect]);
-        fileHash[target] = getSHA256(OutPath[target]);
-        bool result = (strcmp(fileHash[currect], fileHash[target]) == 0);
-        delete[] fileHash[currect];
-        delete[] fileHash[target];
-        return result;
-    }
     status test()
     {
         if (run(currect) != 0)
@@ -123,106 +284,4 @@ public:
             return WA;
         }
     }
-};
-
-int main(int argc, char *argv[])
-{
-    int opt = 0;
-    while ((opt = getopt(argc, argv, "t:c:T:")) != -1)
-    {
-        switch (opt)
-        {
-        case 't':
-            SourcePath[target] = optarg;
-            Options_t = true;
-            break;
-        case 'c':
-            SourcePath[currect] = optarg;
-            Options_c = true;
-            break;
-        default:
-            printf("Unknow option:%c", opterr);
-            exit(EXIT_FAILURE);
-        }
-    }
-}
-
-/*
-Y7n05h 在此处使用了很多C语言的方式完成IO操作
-是因为愚蠢的Y7n05h还没学明白C++里面的各种IO方式
-Y7n05h承诺未来会改善他们
-当然，有兴趣帮助Y7n05h改进程序的欢迎PR
-*/
-
-int compile(char *filepath, const std::vector<std::string> &compileArgs)
-{
-    RE2 re("\\.c$");
-    assert(re.ok());
-    bool cfile = RE2::PartialMatch(filepath, re);
-    int argc = compileArgs.size() + 2;
-    char *argv[argc];
-
-    for (size_t i = 0; i < compileArgs.size(); i++)
-    {
-        try
-        {
-            argv[i + 1] = new char[compileArgs[i].size() + 1];
-        }
-        catch (std::bad_alloc err)
-        {
-            std::cout << err.what() << std::endl;
-        }
-        strcpy(argv[i + 1], compileArgs[i].c_str());
-    }
-    try
-    {
-        argv[0] = new char[LEN];
-    }
-    catch (std::bad_alloc err)
-    {
-        std::cout << err.what() << std::endl;
-    }
-    strcpy(argv[0], cfile ? "gcc" : "g++");
-    argv[argc - 1] = nullptr;
-    execvp(argv[0], argv);
-    throw std::runtime_error("exec Failed");
-    return 1;
-}
-class self_check
-{
-    std::string clang_version, gcc_version, clangtidy_version, cppcheck_version;
-
-    enum software
-    {
-        gcc,
-        clang,
-        clangtidy
-    };
-
-    void check(const std::string &name)
-    {
-        std::string regex = R"(.{0,4}(version|版本).{0,4}([\d\.]{3,10}))";
-        std::string cmd = "--version";
-        cmd = name + cmd;
-        FILE *fp = popen(cmd.c_str(), "r");
-        regex = name + regex;
-        re2::RE2 pattern(regex);
-        int n = 10;
-        while (n-- && feof(fp) == 0)
-        {
-            char line[2048];
-            fgets(line, sizeof(line), fp);
-
-            if (re2::RE2::Extract(line, pattern, R"(\2)", &clang_version))
-            {
-                pclose(fp);
-                return;
-            }
-        }
-        pclose(fp);
-        throw std::runtime_error("read " + name + " failed");
-    }
-};
-void RAND()
-{
-}
+}; */
