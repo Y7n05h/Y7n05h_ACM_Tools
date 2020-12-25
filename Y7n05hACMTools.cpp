@@ -43,7 +43,7 @@ enum status
 
 bool Options_t, Options_c, Options_p, Options_e;
 
-class file
+class File
 {
 
     std::string path;
@@ -81,15 +81,15 @@ public:
             throw std::runtime_error(strerror(errno));
         }
     }
-    bool operator==(const file &other) const
+    bool operator==(const File &other) const
     {
         return getSHA256() == other.getSHA256();
     }
-    bool operator!=(const file &other) const
+    bool operator!=(const File &other) const
     {
         return !operator==(other);
     }
-    file(std::string prefix, FILETYPE filetype) : path(std::move(prefix))
+    File(std::string prefix, FILETYPE filetype) : path(std::move(prefix))
     {
         switch (filetype)
         {
@@ -116,11 +116,11 @@ public:
             throw std::runtime_error("open file failed");
         }
     }
-    explicit file(std::string filepath) : path(std::move(std::move(filepath)))
+    explicit File(std::string filepath) : path(std::move(std::move(filepath)))
     {
         fd = open(path.c_str(), O_RDONLY);
     }
-    explicit file(char *filepath) : path(filepath)
+    explicit File(char *filepath) : path(filepath)
     {
         fd = open(path.c_str(), O_RDONLY);
     }
@@ -186,7 +186,7 @@ class SourceCode
     std::string programPath;
     void JudgmentType()
     {
-        RE2 re("\\.c$");
+        RE2 re(R"(\.c$)");
         assert(re.ok());
         cFile = RE2::PartialMatch(sourceCodePath, re);
     }
@@ -231,7 +231,36 @@ public:
     explicit SourceCode(char *path) : sourceCodePath(path) {}
     explicit SourceCode(std::string path) : sourceCodePath(std::move(std::move(path))) {}
 };
+class program
+{
+    std::string path;
+    status run()
+    {
+        pid_t pid = fork();
+        if (pid < 0)
+        {
+            throw std::runtime_error("fork() failed");
+        }
+        if (pid > 0)
+        {
+            sleep(TimeLimit); //TODO:更改时间计算方式，计算子进程运行的CPU时间
+            int exitStatus;
+            if (waitpid(pid, &exitStatus, WNOHANG) == 0)
+            {
+                return TLE;
+                // TODO：根据选项杀死子进程
+            }
+            if (WIFEXITED(exitStatus)) //正常终止则为真
+            {
+                return AC;
+            }
+            return RE;
+        }
 
+        execl(path.c_str(), path.c_str(), nullptr);
+        throw std::runtime_error("execl failed");
+    }
+};
 int main(int argc, char *argv[])
 {
     std::string targetSourceCodePath;
