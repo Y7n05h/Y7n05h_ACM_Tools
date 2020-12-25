@@ -47,7 +47,7 @@ class file
 {
 
     std::string path;
-    int fd{};
+    int fd = -1;
 
     std::array<unsigned char, SHA256_DIGEST_LENGTH> getSHA256() const
     {
@@ -89,7 +89,7 @@ public:
     {
         return !operator==(other);
     }
-    file(std::string prefix, FILETYPE filetype) : path(std::move(std::move(prefix)))
+    file(std::string prefix, FILETYPE filetype) : path(std::move(prefix))
     {
         switch (filetype)
         {
@@ -125,6 +125,60 @@ public:
         fd = open(path.c_str(), O_RDONLY);
     }
 };
+class Compiler
+{
+    std::string c_compiler;
+    std::string cpp_compiler;
+
+    std::string version;
+    bool self_check()
+    {
+
+        std::string cmd = c_compiler + " --version";
+        std::string regex = "(" + c_compiler + R"(|).{0,5}(version|版本)?.{0,5}(\d{1,2}\.\d{1,2}\.\d{1,2}))";
+        re2::RE2 pattern(regex);
+        assert(pattern.ok());
+        FILE *fp = nullptr;
+        fp = popen(cmd.c_str(), "r");
+        if (fp == nullptr)
+        {
+            throw std::runtime_error("popen failed");
+        }
+        char buf[1024];
+        fgets(buf, sizeof(buf), fp);
+        pclose(fp);
+        return re2::RE2::Extract(buf, pattern, R"(\3)", &version);
+    }
+
+public:
+    const char *compilername(bool isCFile) const
+    {
+        if (isCFile)
+        {
+            return c_compiler.c_str();
+        }
+        return cpp_compiler.c_str();
+    }
+    explicit Compiler(const std::string &compilername)
+    {
+        if (compilername == "clang" || compilername == "clang++")
+        {
+            c_compiler = "clang";
+            cpp_compiler = "clang++";
+        }
+        else if (compilername == "gcc" || compilername == "g++")
+        {
+            c_compiler = "gcc";
+            cpp_compiler = "gcc++";
+        }
+        else
+        {
+            throw std::runtime_error("Unknow compiler");
+        }
+        self_check();
+    }
+};
+
 class SourceCode
 {
     std::string sourceCodePath;
@@ -138,31 +192,10 @@ class SourceCode
     }
 
 public:
-    void compile(const std::vector<std::string> &compileParameter, const std::string &path)
+    void compile(const std::vector<std::string> &compileParameter, const std::string &path, const Compiler &compiler)
     {
         const char *argv[compileParameter.size() + 4];
-        if (cFile)
-        {
-            if (compileParameter[0] == "g++")
-            {
-                argv[0] = "gcc";
-            }
-            else if (compileParameter[0] == "clang++")
-            {
-                argv[0] = "clang";
-            }
-        }
-        else
-        {
-            if (compileParameter[0] == "gcc")
-            {
-                argv[0] = "g++";
-            }
-            else if (compileParameter[0] == "clang")
-            {
-                argv[0] = "clang++";
-            }
-        }
+        argv[0] = compiler.compilername(cFile);
         size_t i;
         for (i = 1; i < compileParameter.size(); i++)
         {
@@ -223,65 +256,3 @@ int main(int argc, char *argv[])
     }
     SourceCode currect(currectSourceCodePath), target(targetSourceCodePath);
 }
-
-/*
-Y7n05h 在此处使用了很多C语言的方式完成IO操作
-是因为愚蠢的Y7n05h还没学明白C++里面的各种IO方式
-Y7n05h承诺未来会改善他们
-当然，有兴趣帮助Y7n05h改进程序的欢迎PR
-*/
-
-/* class TEST //一次测试，完成程序的运行、输入、输出、比较
-{
-
-    int input_fd;
-
-    char *programPath[2]; //程序路径
-    char *OutPath[2];     // 标准输出路径
-    char *ErrPath[2];     // 错误输出路径
-
-    int run(types t) //返回值为运行状态
-    {
-        pid_t pid = fork();
-        if (pid == 0)
-        {
-            // 子进程
-            int err_fd = open(ErrPath[t], O_WRONLY | O_CREAT | O_TRUNC, 0644);
-            int out_fd = open(OutPath[t], O_WRONLY | O_CREAT | O_TRUNC, 0644);
-            if (err_fd == -1 || out_fd == -1)
-            {
-                throw std::runtime_error(strerror(errno));
-            }
-
-            dup2(STDIN_FILENO, input_fd);
-            dup2(STDOUT_FILENO, out_fd);
-            dup2(STDERR_FILENO, err_fd);
-            execl(programPath[t], nullptr);
-        }
-        // 父进程
-        sleep(TimeLimit);
-        int exitStatus;
-        waitpid(pid, &exitStatus, WNOHANG);
-        return WIFEXITED(exitStatus); //正常终止则为真
-    }
-
-public:
-    status test()
-    {
-        if (run(currect) != 0)
-        {
-            fprintf(stderr, "Error.\n对照程序 CE\n");
-            return CE;
-        }
-        if (run(target) != 0)
-        {
-            fprintf(stderr, "CE\n");
-            return CE;
-        }
-        if (compare())
-        {
-            fprintf(stderr, "WA\n");
-            return WA;
-        }
-    }
-}; */
