@@ -125,6 +125,64 @@ public:
         fd = open(path.c_str(), O_RDONLY);
     }
 };
+class SourceCode
+{
+    std::string sourceCodePath;
+    bool cFile = false;
+    void JudgmentType()
+    {
+        RE2 re(R"(\.c$)");
+        assert(re.ok());
+        cFile = RE2::PartialMatch(sourceCodePath, re);
+    }
+    friend class Compiler;
+
+public:
+    explicit SourceCode(char *path) : sourceCodePath(path)
+    {
+        JudgmentType();
+    }
+    explicit SourceCode(std::string path) : sourceCodePath(std::move(std::move(path)))
+    {
+        JudgmentType();
+    }
+};
+class Program
+{
+    std::string path;
+
+    status run()
+    {
+        pid_t pid = fork();
+        if (pid < 0)
+        {
+            throw std::runtime_error("fork() failed");
+        }
+        if (pid > 0)
+        {
+            sleep(TimeLimit); //TODO:更改时间计算方式，计算子进程运行的CPU时间
+            int exitStatus;
+            if (waitpid(pid, &exitStatus, WNOHANG) == 0)
+            {
+                return TLE;
+                // TODO：根据选项杀死子进程
+            }
+            if (WIFEXITED(exitStatus)) //正常终止则为真
+            {
+                return AC;
+            }
+            return RE;
+        }
+
+        execl(path.c_str(), path.c_str(), nullptr);
+        throw std::runtime_error("execl failed");
+    }
+
+public:
+    explicit Program(std ::string path) : path(std::move(std::move(path))) {}
+    explicit Program(const char *path) : path(path) {}
+};
+
 class Compiler
 {
     std::string c_compiler;
@@ -177,33 +235,23 @@ public:
         }
         self_check();
     }
-};
-
-class SourceCode
-{
-    std::string sourceCodePath;
-    bool cFile = false;
-    std::string programPath;
-    void JudgmentType()
+    Program *compile(const std::vector<std::string> &compileParameter, const SourceCode &code) const
     {
-        RE2 re(R"(\.c$)");
-        assert(re.ok());
-        cFile = RE2::PartialMatch(sourceCodePath, re);
-    }
 
-public:
-    void compile(const std::vector<std::string> &compileParameter, const std::string &path, const Compiler &compiler)
-    {
         const char *argv[compileParameter.size() + 4];
-        argv[0] = compiler.compilername(cFile);
+        argv[0] = compilername(code.cFile);
         size_t i;
         for (i = 1; i < compileParameter.size(); i++)
         {
             argv[i] = compileParameter[i].c_str();
         }
-        argv[i++] = sourceCodePath.c_str();
+        argv[i++] = code.sourceCodePath.c_str();
         argv[i++] = "-o";
+        std::string path = code.sourceCodePath;
+        re2::RE2 regex(R"(\.c(c?|pp)$)");
+        re2::RE2::Replace(&path, regex, ".out");
         argv[i++] = path.c_str();
+
         argv[i] = nullptr;
         pid_t pid = fork();
         if (pid < 0)
@@ -214,52 +262,24 @@ public:
         {
             execvp(argv[0], (char *const *)argv);
         }
-        else
-        {
-            int wstatus = 0;
-            int ret = waitpid(pid, &wstatus, 0);
-            if (ret == -1)
-            {
-                throw std::runtime_error("waitpid failed");
-            }
-            if (!WIFEXITED(wstatus))
-            {
-                throw std::runtime_error("CE");
-            }
-        }
-    }
-    explicit SourceCode(char *path) : sourceCodePath(path) {}
-    explicit SourceCode(std::string path) : sourceCodePath(std::move(std::move(path))) {}
-};
-class program
-{
-    std::string path;
-    status run()
-    {
-        pid_t pid = fork();
-        if (pid < 0)
-        {
-            throw std::runtime_error("fork() failed");
-        }
-        if (pid > 0)
-        {
-            sleep(TimeLimit); //TODO:更改时间计算方式，计算子进程运行的CPU时间
-            int exitStatus;
-            if (waitpid(pid, &exitStatus, WNOHANG) == 0)
-            {
-                return TLE;
-                // TODO：根据选项杀死子进程
-            }
-            if (WIFEXITED(exitStatus)) //正常终止则为真
-            {
-                return AC;
-            }
-            return RE;
-        }
 
-        execl(path.c_str(), path.c_str(), nullptr);
-        throw std::runtime_error("execl failed");
+        int wstatus = 0;
+        int ret = waitpid(pid, &wstatus, 0);
+        if (ret == -1)
+        {
+            throw std::runtime_error("waitpid failed");
+        }
+        if (!WIFEXITED(wstatus))
+        {
+            throw std::runtime_error("CE");
+        }
+        auto *program = new Program(path);
+        return program;
     }
+};
+
+class TestGroup
+{
 };
 int main(int argc, char *argv[])
 {
