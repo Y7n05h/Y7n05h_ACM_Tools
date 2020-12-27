@@ -8,7 +8,7 @@
 
 class RandDataGenerator
 {
-    void generator()
+    static void generator()
     {
         constexpr int MAX = 10;
         timespec tm{};
@@ -20,12 +20,13 @@ class RandDataGenerator
         {
             printf("%d ", rand() % MAX);
         }
+        printf("\n");
     }
 
 public:
-    int generate(const std::string &path)
+    static int generate(const std::string &path)
     {
-
+        char *pwd = getcwd(nullptr, 0);
         if (chdir(path.c_str()) != 0)
         {
             throw std::runtime_error("bad path");
@@ -44,12 +45,15 @@ public:
         {
             throw std::runtime_error("dup2 failed");
         }
-        RandDataGenerator();
-        if (dup2(STDOUT_FILENO, backup))
+        generator();
+        fflush(stdout);
+        if (dup2(backup, STDOUT_FILENO) == -1)
         {
             throw std::runtime_error("dup2 failed");
         }
         close(backup);
+        chdir(pwd);
+        free(pwd);
         return fd;
     }
 };
