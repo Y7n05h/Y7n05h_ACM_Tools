@@ -145,14 +145,11 @@ public:
 class TestUnit
 {
     std::string prefix;
-    File in, out, err;
+    const File &in;
+    File out, err;
 
 public:
-    explicit TestUnit(const std::string &path)
-        : prefix(path), in(RandDataGenerator::generate(prefix)), out(path, OUT), err(path, ERR)
-    {
-    }
-    TestUnit(const std::string &path, int input_fd) : in(input_fd), out(path, OUT), err(path, ERR)
+    TestUnit(const std::string &path, const File &in) : in(in), out(path, OUT), err(path, ERR)
     {
     }
 
@@ -322,4 +319,14 @@ int main(int argc, char *argv[])
         }
     }
     SourceCode currect(currectSourceCodePath), target(targetSourceCodePath);
+}
+class TestGroup
+{
+    File in;
+    TestUnit target, currect;
+    std::string prefix;
+    TestGroup(std::string prefix)
+        : in(RandDataGenerator::generate(prefix)), target(prefix + "target", in), currect(prefix + "currect", in)
+    {
+    }
 }
