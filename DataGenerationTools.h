@@ -1,5 +1,3 @@
-#include <cstdio>
-#include <cstdlib>
 #include <ctime>
 #include <fcntl.h>
 #include <stdexcept>
