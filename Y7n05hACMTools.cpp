@@ -144,7 +144,6 @@ public:
 };
 class TestUnit
 {
-    std::string prefix;
     const File &in;
     File out, err;
 
@@ -153,7 +152,7 @@ public:
     {
     }
 
-    bool operator==(TestUnit const &another)
+    bool operator==(TestUnit const &another) const
     {
         return out == another.out;
     }
@@ -169,7 +168,8 @@ class Program
 {
     std::string path;
 
-    status run(const TestUnit &unit)
+public:
+    status run(const TestUnit &unit) const
     {
         pid_t pid = fork();
         if (pid < 0)
@@ -195,8 +195,6 @@ class Program
         execl(path.c_str(), path.c_str(), nullptr);
         throw std::runtime_error("execl failed");
     }
-
-public:
     explicit Program(std ::string path) : path(std::move(std::move(path))) {}
     explicit Program(const char *path) : path(path) {}
 };
@@ -325,8 +323,22 @@ class TestGroup
     File in;
     TestUnit target, currect;
     std::string prefix;
-    TestGroup(std::string prefix)
+    explicit TestGroup(const std::string &prefix)
         : in(RandDataGenerator::generate(prefix)), target(prefix + "target", in), currect(prefix + "currect", in)
     {
     }
-}
+    status run(const Program &targetProgram, const Program &currectProgram) const
+    {
+        status targetStatus = targetProgram.run(target);
+        currectProgram.run(currect);
+        if (targetStatus != AC)
+        {
+            return targetStatus;
+        }
+        if (target == currect)
+        {
+            return AC;
+        }
+        return WA;
+    }
+};
