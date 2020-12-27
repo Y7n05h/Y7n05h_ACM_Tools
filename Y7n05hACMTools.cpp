@@ -142,11 +142,37 @@ public:
         JudgmentType();
     }
 };
+class TestUnit
+{
+    std::string prefix;
+    File in, out, err;
+
+public:
+    explicit TestUnit(const std::string &path)
+        : prefix(path), in(RandDataGenerator::generate(prefix)), out(path, OUT), err(path, ERR)
+    {
+    }
+    TestUnit(const std::string &path, int input_fd) : in(input_fd), out(path, OUT), err(path, ERR)
+    {
+    }
+
+    bool operator==(TestUnit const &another)
+    {
+        return out == another.out;
+    }
+    void redirect() const
+    {
+        in.redirect(STDIN_FILENO);
+        out.redirect(STDOUT_FILENO);
+        err.redirect(STDERR_FILENO);
+    }
+};
+
 class Program
 {
     std::string path;
 
-    status run()
+    status run(const TestUnit &unit)
     {
         pid_t pid = fork();
         if (pid < 0)
@@ -168,7 +194,7 @@ class Program
             }
             return RE;
         }
-
+        unit.redirect();
         execl(path.c_str(), path.c_str(), nullptr);
         throw std::runtime_error("execl failed");
     }
@@ -273,20 +299,6 @@ public:
     }
 };
 
-class TestGroup
-{
-    std::string prefix;
-    File in, out, err;
-
-public:
-    explicit TestGroup(const std::string &path)
-        : prefix(path), in(RandDataGenerator::generate(prefix)), out(path, OUT), err(path, ERR)
-    {
-    }
-    TestGroup(const std::string &path, int input_fd) : in(input_fd), out(path, OUT), err(path, ERR)
-    {
-    }
-};
 int main(int argc, char *argv[])
 {
     std::string targetSourceCodePath;
