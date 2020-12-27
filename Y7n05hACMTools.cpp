@@ -52,10 +52,10 @@ class File
     std::array<unsigned char, SHA256_DIGEST_LENGTH> getSHA256() const
     {
         std::array<unsigned char, SHA256_DIGEST_LENGTH> hash{};
-        FILE *fp = fopen(path.c_str(), "rb");
+        lseek(fd, 0, SEEK_SET);
         SHA256_CTX tmp;
 
-        if (fp == nullptr)
+        if (fd < 0)
         {
             throw std::runtime_error(strerror(errno));
         }
@@ -64,12 +64,12 @@ class File
         size_t size = 0;
         unsigned char buf[4096];
 
-        while ((size = fread(buf, 1, 4096, fp)) != 0)
+        while ((size = read(fd, buf, sizeof(buf))))
         {
             SHA256_Update(&tmp, buf, size);
         }
         SHA256_Final(hash.data(), &tmp);
-        fclose(fp);
+        ::close(fd);
         return hash;
     }
 
@@ -89,40 +89,36 @@ public:
     {
         return !operator==(other);
     }
-    File(std::string prefix, FILETYPE filetype) : path(std::move(prefix))
+    File(const std::string &prefix, FILETYPE filetype)
     {
+        std::string path = prefix;
+
         switch (filetype)
         {
         case IN:
             path += "_in.txt";
+            fd = open(path.c_str(), O_RDONLY);
             break;
         case OUT:
             path += "_out.txt";
+            fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+
             break;
         case ERR:
             path += "_err.txt";
-            break;
-        }
-        if (filetype == IN)
-        {
-            fd = open(path.c_str(), O_RDONLY);
-        }
-        else
-        {
             fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            break;
         }
         if (fd == -1)
         {
             throw std::runtime_error("open file failed");
         }
     }
-    explicit File(std::string filepath) : path(std::move(std::move(filepath)))
+
+    explicit File(int fd) : fd(fd) {}
+    int close() const
     {
-        fd = open(path.c_str(), O_RDONLY);
-    }
-    explicit File(char *filepath) : path(filepath)
-    {
-        fd = open(path.c_str(), O_RDONLY);
+        return ::close(fd);
     }
 };
 class SourceCode
@@ -238,10 +234,10 @@ public:
     Program *compile(const std::vector<std::string> &compileParameter, const SourceCode &code) const
     {
 
-        const char *argv[compileParameter.size() + 4];
+        const char *argv[compileParameter.size() + 5];
         argv[0] = compilername(code.cFile);
         size_t i;
-        for (i = 1; i < compileParameter.size(); i++)
+        for (i = 1; i <= compileParameter.size(); i++)
         {
             argv[i] = compileParameter[i].c_str();
         }
@@ -280,6 +276,7 @@ public:
 
 class TestGroup
 {
+    File in, out, err;
 };
 int main(int argc, char *argv[])
 {
