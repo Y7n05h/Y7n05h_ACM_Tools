@@ -1,3 +1,4 @@
+#include "DataGenerationTools.h"
 #include <array>
 #include <cassert>
 #include <cstdio>
@@ -42,11 +43,9 @@ enum status
 };
 
 bool Options_t, Options_c, Options_p, Options_e;
-
 class File
 {
 
-    std::string path;
     int fd = -1;
 
     std::array<unsigned char, SHA256_DIGEST_LENGTH> getSHA256() const
@@ -276,7 +275,17 @@ public:
 
 class TestGroup
 {
+    std::string prefix;
     File in, out, err;
+
+public:
+    explicit TestGroup(const std::string &path)
+        : prefix(path), in(RandDataGenerator::generate(prefix)), out(path, OUT), err(path, ERR)
+    {
+    }
+    TestGroup(const std::string &path, int input_fd) : in(input_fd), out(path, OUT), err(path, ERR)
+    {
+    }
 };
 int main(int argc, char *argv[])
 {
