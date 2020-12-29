@@ -1,6 +1,7 @@
 #include "DataGenerationTools.h"
 #include <array>
 #include <cassert>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -45,7 +46,6 @@ enum status
 bool Options_t, Options_c, Options_p, Options_e;
 class File
 {
-
     int fd = -1;
 
     std::array<unsigned char, SHA256_DIGEST_LENGTH> getSHA256() const
@@ -53,29 +53,40 @@ class File
         std::array<unsigned char, SHA256_DIGEST_LENGTH> hash{};
         lseek(fd, 0, SEEK_SET);
         SHA256_CTX tmp;
+#ifndef NDEBUG
 
+        printf("fd:%d \n", fd);
+#endif
         if (fd < 0)
         {
             throw std::runtime_error(strerror(errno));
         }
         SHA256_Init(&tmp);
+        ssize_t size = 0;
+        unsigned char buf[10];
 
-        size_t size = 0;
-        unsigned char buf[4096];
-
-        while ((size = read(fd, buf, sizeof(buf))))
+        while ((size = read(fd, buf, sizeof(buf))) > 0)
         {
+            printf("read:%s\n", buf);
             SHA256_Update(&tmp, buf, size);
         }
+
         SHA256_Final(hash.data(), &tmp);
         ::close(fd);
+#ifndef NDEBUG
+        for (auto i : hash)
+        {
+            printf("%02X", i);
+        }
+        printf("\n");
+#endif
         return hash;
     }
 
 public:
     void redirect(int from) const
     {
-        if (dup2(from, fd) == -1)
+        if (dup2(fd, from) == -1)
         {
             throw std::runtime_error(strerror(errno));
         }
@@ -100,7 +111,7 @@ public:
             break;
         case OUT:
             path += "_out.txt";
-            fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            fd = open(path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0644);
 
             break;
         case ERR:
@@ -150,10 +161,14 @@ class TestUnit
 public:
     TestUnit(const std::string &path, const File &in) : in(in), out(path, OUT), err(path, ERR)
     {
+#ifndef NDEBUG
+        printf("in:%d out:%d err:%d\n", in.fd, out.fd, err.fd);
+#endif
     }
 
-    bool operator==(TestUnit const &another) const
+    bool operator==(TestUnit const &another) const //TODO
     {
+
         return out == another.out;
     }
     void redirect() const
@@ -187,6 +202,7 @@ public:
             }
             if (WIFEXITED(exitStatus)) //正常终止则为真
             {
+
                 return AC;
             }
             return RE;
@@ -213,6 +229,8 @@ class Compiler
         re2::RE2 pattern(regex);
         assert(pattern.ok());
         FILE *fp = nullptr;
+
+        //clang --version
         fp = popen(cmd.c_str(), "r");
         if (fp == nullptr)
         {
@@ -223,8 +241,6 @@ class Compiler
         pclose(fp);
         return re2::RE2::Extract(buf, pattern, R"(\3)", &version);
     }
-
-public:
     const char *compilername(bool isCFile) const
     {
         if (isCFile)
@@ -233,6 +249,8 @@ public:
         }
         return cpp_compiler.c_str();
     }
+
+public:
     explicit Compiler(const std::string &compilername)
     {
         if (compilername == "clang" || compilername == "clang++")
@@ -323,6 +341,8 @@ class TestGroup
     File in;
     TestUnit target, currect;
     std::string prefix;
+
+public:
     explicit TestGroup(const std::string &prefix)
         : in(RandDataGenerator::generate(prefix)), target(prefix + "target", in), currect(prefix + "currect", in)
     {
