@@ -2,9 +2,11 @@
 #include <array>
 #include <cassert>
 #include <cerrno>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <error.h>
 #include <fcntl.h>
 #include <iostream>
@@ -161,9 +163,6 @@ class TestUnit
 public:
     TestUnit(const std::string &path, const File &in) : in(in), out(path, OUT), err(path, ERR)
     {
-#ifndef NDEBUG
-        printf("in:%d out:%d err:%d\n", in.fd, out.fd, err.fd);
-#endif
     }
 
     bool operator==(TestUnit const &another) const //TODO
@@ -193,19 +192,28 @@ public:
         }
         if (pid > 0)
         {
-            sleep(TimeLimit); //TODO:更改时间计算方式，计算子进程运行的CPU时间
             int exitStatus;
-            if (waitpid(pid, &exitStatus, WNOHANG) == 0)
-            {
-                return TLE;
-                // TODO：根据选项杀死子进程
-            }
-            if (WIFEXITED(exitStatus)) //正常终止则为真
-            {
+            clock_t end = clock() + CLOCKS_PER_SEC * TimeLimit;
 
-                return AC;
+            while (clock() < end)
+            {
+                int retStatus = waitpid(pid, &exitStatus, WNOHANG);
+                if (retStatus == 0)
+                {
+                    continue;
+                }
+                if (retStatus == pid)
+                {
+                    if (WIFEXITED(exitStatus)) //正常终止则为真
+                    {
+                        return AC;
+                    }
+                    return RE;
+                }
+                throw std::runtime_error("waitpid failed");
             }
-            return RE;
+            kill(pid, SIGKILL);
+            return TLE;
         }
         unit.redirect();
         execl(path.c_str(), path.c_str(), nullptr);
@@ -241,14 +249,6 @@ class Compiler
         pclose(fp);
         return re2::RE2::Extract(buf, pattern, R"(\3)", &version);
     }
-    const char *compilername(bool isCFile) const
-    {
-        if (isCFile)
-        {
-            return c_compiler.c_str();
-        }
-        return cpp_compiler.c_str();
-    }
 
 public:
     explicit Compiler(const std::string &compilername)
@@ -273,7 +273,7 @@ public:
     {
 
         const char *argv[compileParameter.size() + 5];
-        argv[0] = compilername(code.cFile);
+        argv[0] = code.cFile ? c_compiler.c_str() : cpp_compiler.c_str();
         size_t i;
         for (i = 1; i <= compileParameter.size(); i++)
         {
