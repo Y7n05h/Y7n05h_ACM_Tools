@@ -165,7 +165,7 @@ public:
     {
     }
 
-    bool operator==(TestUnit const &another) const //TODO
+    bool operator==(TestUnit const &another) const
     {
 
         return out == another.out;
@@ -213,6 +213,7 @@ public:
                 throw std::runtime_error("waitpid failed");
             }
             kill(pid, SIGKILL);
+            waitpid(pid, nullptr, 0);
             return TLE;
         }
         unit.redirect();
