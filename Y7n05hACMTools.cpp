@@ -21,7 +21,6 @@
 #include <utility>
 #include <vector>
 constexpr int TimeLimit = 1;
-constexpr int LEN = 9;
 /**
  * 参数 -t  target  目标代码路径
  * 参数 -c correct 正确代码路径
@@ -56,7 +55,6 @@ class File
         lseek(fd, 0, SEEK_SET);
         SHA256_CTX tmp;
 #ifndef NDEBUG
-
         printf("fd:%d \n", fd);
 #endif
         if (fd < 0)
@@ -65,11 +63,13 @@ class File
         }
         SHA256_Init(&tmp);
         ssize_t size = 0;
-        unsigned char buf[10];
+        unsigned char buf[4096];
 
         while ((size = read(fd, buf, sizeof(buf))) > 0)
         {
+#ifndef NDEBUG
             printf("read:%s\n", buf);
+#endif
             SHA256_Update(&tmp, buf, size);
         }
 
